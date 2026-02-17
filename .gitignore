@@ -1,0 +1,59 @@
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Editor / IDE
+.vscode/
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.swp
+*.tmp
+
+# Node / Frontend
+node_modules/
+Frontend/node_modules/
+Frontend/dist/
+dist/
+coverage/
+*.tsbuildinfo
+
+# .NET / C#
+bin/
+obj/
+[Bb]uild/
+[Ll]og/
+[Tt]est[Rr]esult*/
+*.nupkg
+*.snupkg
+
+# EF / local tools cache
+.dotnet/
+
+# Publish artifacts
+publish/
+out/
+
+# Local databases / backups
+*.db
+*.sqlite
+*.sqlite3
+*.bak

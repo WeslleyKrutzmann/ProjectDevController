@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: pdc-postgres
+    environment:
+      POSTGRES_DB: projectdevcontroller
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pdc_pgdata:/var/lib/postgresql/data
+
+volumes:
+  pdc_pgdata:
