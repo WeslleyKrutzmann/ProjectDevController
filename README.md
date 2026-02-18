@@ -17,7 +17,7 @@ O **ProjectDevController** foi criado para organizar o ciclo de trabalho de equi
 
 ## Stack
 - Frontend: React + Vite + Tailwind CSS
-- Backend: ASP.NET Core (.NET 8)
+- Backend: ASP.NET Core (.NET 10)
 - Banco de dados: PostgreSQL
 
 ## Estrutura do repositório
