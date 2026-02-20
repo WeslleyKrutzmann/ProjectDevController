@@ -1,6 +1,7 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+﻿import { DragEvent, FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
+import { ModalOverlay } from "../components/ModalOverlay";
 import type { Project, TaskComment, TimeEntry, User, WorkItem, WorkItemStatus } from "../lib/types";
 
 const statuses: WorkItemStatus[] = ["Todo", "InProgress", "InTesting", "Done"];
@@ -16,6 +17,69 @@ const roleLabels: Record<string, string> = {
   Tester: "Testador"
 };
 type DescriptionTab = "edit" | "preview";
+type WorkItemsViewMode = "list" | "kanban";
+type ActivityItem = {
+  id: string;
+  createdAtUtc: string;
+  userName: string;
+  content: string;
+  hours: number | null;
+};
+
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short"
+  }).format(date);
+}
+
+function normalizeText(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function toDateTimeLocalInput(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  const hours = String(value.getHours()).padStart(2, "0");
+  const minutes = String(value.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function createDefaultLogPeriod(): { startAt: string; endAt: string } {
+  const startAtDate = new Date();
+  startAtDate.setSeconds(0, 0);
+  const endAtDate = new Date(startAtDate.getTime() + 60 * 60 * 1000);
+  return {
+    startAt: toDateTimeLocalInput(startAtDate),
+    endAt: toDateTimeLocalInput(endAtDate)
+  };
+}
+
+function calculateWorkedHours(startAt: string, endAt: string): number | null {
+  if (!startAt || !endAt) {
+    return null;
+  }
+
+  const startDate = new Date(startAt);
+  const endDate = new Date(endAt);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return null;
+  }
+
+  const diffInMilliseconds = endDate.getTime() - startDate.getTime();
+  if (diffInMilliseconds <= 0) {
+    return null;
+  }
+
+  const hours = diffInMilliseconds / (1000 * 60 * 60);
+  return Math.round(hours * 100) / 100;
+}
 
 function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
   const nodes: ReactNode[] = [];
@@ -187,7 +251,7 @@ function renderMarkdownPreview(markdown: string): ReactNode[] {
 }
 
 export function WorkItemsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [items, setItems] = useState<WorkItem[]>([]);
@@ -203,20 +267,92 @@ export function WorkItemsPage() {
   const [filterAssignedToId, setFilterAssignedToId] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterProjectId, setFilterProjectId] = useState("");
+  const [isAssignedFilterInitialized, setIsAssignedFilterInitialized] = useState(false);
 
   const [selectedItem, setSelectedItem] = useState<WorkItem | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [logDescription, setLogDescription] = useState("");
-  const [logHours, setLogHours] = useState("1");
-  const [logWorkDate, setLogWorkDate] = useState(new Date().toISOString().slice(0, 10));
+  const [logStartAt, setLogStartAt] = useState("");
+  const [logEndAt, setLogEndAt] = useState("");
+  const [logWorkError, setLogWorkError] = useState("");
   const [logStatus, setLogStatus] = useState<WorkItemStatus>("Todo");
   const [logAssignedToId, setLogAssignedToId] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<WorkItemsViewMode>("list");
+  const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+  const [moveError, setMoveError] = useState("");
 
   const developerOptions = useMemo(
     () => users.filter((x) => x.role === "Developer" || x.role === "Administrator"),
     [users]
+  );
+  const itemsByStatus = useMemo(
+    () =>
+      statuses.reduce<Record<WorkItemStatus, WorkItem[]>>(
+        (acc, currentStatus) => {
+          acc[currentStatus] = items.filter((item) => item.status === currentStatus);
+          return acc;
+        },
+        { Todo: [], InProgress: [], InTesting: [], Done: [] }
+      ),
+    [items]
+  );
+  const activityItems = useMemo<ActivityItem[]>(
+    () => {
+      const availableComments = comments.map((comment) => ({
+        comment,
+        used: false
+      }));
+
+      const mergedFromTimeEntries: ActivityItem[] = timeEntries.map((entry) => {
+        const entryCreatedAt = new Date(entry.createdAtUtc).getTime();
+        const entryContent = normalizeText(entry.description);
+
+        const matchingComment = availableComments.find((candidate) => {
+          if (candidate.used) {
+            return false;
+          }
+
+          const sameUser = candidate.comment.authorName === entry.userName;
+          const sameContent = normalizeText(candidate.comment.content) === entryContent;
+          const commentCreatedAt = new Date(candidate.comment.createdAtUtc).getTime();
+          const closeInTime = Math.abs(commentCreatedAt - entryCreatedAt) <= 2 * 60 * 1000;
+          return sameUser && sameContent && closeInTime;
+        });
+
+        if (matchingComment) {
+          matchingComment.used = true;
+        }
+
+        return {
+          id: `time-${entry.id}`,
+          createdAtUtc: entry.createdAtUtc,
+          userName: entry.userName,
+          content: matchingComment?.comment.content ?? entry.description,
+          hours: entry.hours
+        };
+      });
+
+      const commentOnlyItems: ActivityItem[] = availableComments
+        .filter((candidate) => !candidate.used)
+        .map((candidate) => ({
+          id: `comment-${candidate.comment.id}`,
+          createdAtUtc: candidate.comment.createdAtUtc,
+          userName: candidate.comment.authorName,
+          content: candidate.comment.content,
+          hours: null
+        }));
+
+      return [...mergedFromTimeEntries, ...commentOnlyItems].sort(
+        (a, b) => new Date(b.createdAtUtc).getTime() - new Date(a.createdAtUtc).getTime()
+      );
+    },
+    [comments, timeEntries]
+  );
+  const calculatedLogHours = useMemo(
+    () => calculateWorkedHours(logStartAt, logEndAt),
+    [logStartAt, logEndAt]
   );
 
   async function loadMeta() {
@@ -254,16 +390,38 @@ export function WorkItemsPage() {
 
     const query = params.toString();
     const rows = await api.get<WorkItem[]>(`/work-items${query ? `?${query}` : ""}`, token);
-    setItems(rows);
+    const filteredRows = filterAssignedToId
+      ? rows.filter((item) => item.assignedToId === filterAssignedToId)
+      : rows;
+    setItems(filteredRows);
   }
+
+  useEffect(() => {
+    if (!user || isAssignedFilterInitialized) {
+      return;
+    }
+
+    setFilterAssignedToId(user.role === "Administrator" ? "" : user.id);
+    setIsAssignedFilterInitialized(true);
+  }, [user, isAssignedFilterInitialized]);
 
   useEffect(() => {
     loadMeta().catch(() => undefined);
   }, [token]);
 
   useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    const shouldWaitUserContext = !user;
+    const shouldWaitAssignedFilter = user?.role !== "Administrator" && !isAssignedFilterInitialized;
+    if (shouldWaitUserContext || shouldWaitAssignedFilter) {
+      return;
+    }
+
     loadItems().catch(() => setItems([]));
-  }, [token, filterProjectId, filterAssignedToId, filterStatus]);
+  }, [token, user, isAssignedFilterInitialized, filterProjectId, filterAssignedToId, filterStatus]);
 
   async function onCreate(event: FormEvent) {
     event.preventDefault();
@@ -309,12 +467,14 @@ export function WorkItemsPage() {
   }
 
   async function openDetails(item: WorkItem) {
+    const defaultPeriod = createDefaultLogPeriod();
     setSelectedItem(item);
     setLogStatus(item.status);
     setLogAssignedToId(item.assignedToId ?? "");
     setLogDescription("");
-    setLogHours("1");
-    setLogWorkDate(new Date().toISOString().slice(0, 10));
+    setLogStartAt(defaultPeriod.startAt);
+    setLogEndAt(defaultPeriod.endAt);
+    setLogWorkError("");
     await loadDetails(item.id);
   }
 
@@ -323,6 +483,7 @@ export function WorkItemsPage() {
     setComments([]);
     setTimeEntries([]);
     setLogDescription("");
+    setLogWorkError("");
   }
 
   async function saveWorkLog(event: FormEvent) {
@@ -331,12 +492,26 @@ export function WorkItemsPage() {
       return;
     }
 
+    const workedHours = calculateWorkedHours(logStartAt, logEndAt);
+    if (workedHours === null) {
+      setLogWorkError("Informe data e hora de início e fim válidas.");
+      return;
+    }
+
+    if (workedHours > 24) {
+      setLogWorkError("O intervalo informado deve ser de no máximo 24 horas.");
+      return;
+    }
+
+    const workDate = logStartAt.slice(0, 10);
+    setLogWorkError("");
+
     const updated = await api.post<WorkItem>(
       `/work-items/${selectedItem.id}/log-work`,
       {
         workDescription: logDescription,
-        hours: Number(logHours),
-        workDate: logWorkDate,
+        hours: workedHours,
+        workDate,
         status: logStatus,
         assignedToId: logAssignedToId || null
       },
@@ -346,19 +521,96 @@ export function WorkItemsPage() {
     setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
     setSelectedItem(updated);
     setLogDescription("");
-    setLogHours("1");
-    setLogWorkDate(new Date().toISOString().slice(0, 10));
+    const defaultPeriod = createDefaultLogPeriod();
+    setLogStartAt(defaultPeriod.startAt);
+    setLogEndAt(defaultPeriod.endAt);
     await loadDetails(updated.id);
+  }
+
+  async function moveItemToStatus(item: WorkItem, nextStatus: WorkItemStatus) {
+    if (!token || item.status === nextStatus) {
+      return;
+    }
+
+    setMoveError("");
+    try {
+      const updated = await api.put<WorkItem>(
+        `/work-items/${item.id}`,
+        {
+          title: item.title,
+          description: item.description,
+          status: nextStatus,
+          responsibleDeveloperId: item.responsibleDeveloperId,
+          assignedToId: item.assignedToId
+        },
+        token
+      );
+
+      setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      setSelectedItem((prev) => (prev?.id === updated.id ? updated : prev));
+    } catch {
+      setMoveError("Não foi possível mover a tarefa de coluna.");
+    }
+  }
+
+  function onDragStart(itemId: string, event: DragEvent<HTMLDivElement>) {
+    setDraggingItemId(itemId);
+    event.dataTransfer.setData("text/plain", itemId);
+    event.dataTransfer.effectAllowed = "move";
+  }
+
+  function onDragEnd() {
+    setDraggingItemId(null);
+  }
+
+  function onDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }
+
+  async function onDropStatus(targetStatus: WorkItemStatus, event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const droppedId = event.dataTransfer.getData("text/plain") || draggingItemId;
+    setDraggingItemId(null);
+    if (!droppedId) {
+      return;
+    }
+
+    const item = items.find((x) => x.id === droppedId);
+    if (!item) {
+      return;
+    }
+
+    await moveItemToStatus(item, targetStatus);
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold">Tarefas</h2>
-        <button type="button" onClick={() => setIsCreateModalOpen(true)} className="rounded bg-brand-700 px-3 py-2 text-white">
-          Nova tarefa
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="inline-flex rounded border border-slate-300 bg-white p-1 text-sm">
+            <button
+              type="button"
+              onClick={() => setViewMode("kanban")}
+              className={`rounded px-3 py-1 ${viewMode === "kanban" ? "bg-brand-700 text-white" : "text-slate-700"}`}
+            >
+              Kanban
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("list")}
+              className={`rounded px-3 py-1 ${viewMode === "list" ? "bg-brand-700 text-white" : "text-slate-700"}`}
+            >
+              Lista
+            </button>
+          </div>
+          <button type="button" onClick={() => setIsCreateModalOpen(true)} className="rounded bg-brand-700 px-3 py-2 text-white">
+            Nova tarefa
+          </button>
+        </div>
       </div>
+      {moveError && <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{moveError}</p>}
 
       <div className="grid gap-2 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-3">
         <select value={filterProjectId} onChange={(event) => setFilterProjectId(event.target.value)} className="rounded border border-slate-300 px-3 py-2">
@@ -383,46 +635,122 @@ export function WorkItemsPage() {
         </select>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-100">
-            <tr>
-              <th className="px-3 py-2 text-left">#</th>
-              <th className="px-3 py-2 text-left">Projeto</th>
-              <th className="px-3 py-2 text-left">Título</th>
-              <th className="px-3 py-2 text-left">Status</th>
-              <th className="px-3 py-2 text-left">Atribuído para</th>
-              <th className="px-3 py-2 text-left">Horas</th>
-              <th className="px-3 py-2 text-left">Ação</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.id} className="border-t border-slate-200">
-                <td className="px-3 py-2 font-semibold">{item.taskNumber}</td>
-                <td className="px-3 py-2">{item.projectName}</td>
-                <td className="px-3 py-2 font-semibold">{item.title}</td>
-                <td className="px-3 py-2">{statusLabels[item.status]}</td>
-                <td className="px-3 py-2">{item.assignedToName ?? "-"}</td>
-                <td className="px-3 py-2">{item.totalHours.toFixed(2)}</td>
-                <td className="px-3 py-2">
-                  <button onClick={() => openDetails(item)} className="rounded bg-slate-800 px-2 py-1 text-xs text-white">
-                    Registrar trabalho
-                  </button>
-                </td>
+      {viewMode === "list" ? (
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-100">
+              <tr>
+                <th className="px-3 py-2 text-left">#</th>
+                <th className="px-3 py-2 text-left">Projeto</th>
+                <th className="px-3 py-2 text-left">Título</th>
+                <th className="px-3 py-2 text-left">Status</th>
+                <th className="px-3 py-2 text-left">Atribuído para</th>
+                <th className="px-3 py-2 text-left">Horas</th>
+                <th className="px-3 py-2 text-left">Ação</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id} className="border-t border-slate-200">
+                  <td className="px-3 py-2 font-semibold">{item.taskNumber}</td>
+                  <td className="px-3 py-2">{item.projectName}</td>
+                  <td className="px-3 py-2 font-semibold">{item.title}</td>
+                  <td className="px-3 py-2">{statusLabels[item.status]}</td>
+                  <td className="px-3 py-2">{item.assignedToName ?? "-"}</td>
+                  <td className="px-3 py-2">{item.totalHours.toFixed(2)}</td>
+                  <td className="px-3 py-2">
+                    <button onClick={() => openDetails(item)} className="rounded bg-slate-800 px-2 py-1 text-xs text-white">
+                      Registrar trabalho
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <div className="grid min-w-[960px] gap-3 lg:grid-cols-4">
+            {statuses.map((columnStatus) => (
+              <div
+                key={columnStatus}
+                onDragOver={onDragOver}
+                onDrop={(event) => onDropStatus(columnStatus, event)}
+                className="flex min-h-[420px] flex-col rounded-xl border border-slate-200 bg-white"
+              >
+                <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
+                  <h3 className="font-semibold">{statusLabels[columnStatus]}</h3>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                    {itemsByStatus[columnStatus].length}
+                  </span>
+                </div>
 
+                <div className="flex-1 space-y-2 p-2">
+                  {itemsByStatus[columnStatus].map((item) => (
+                    <div
+                      key={item.id}
+                      draggable
+                      onDragStart={(event) => onDragStart(item.id, event)}
+                      onDragEnd={onDragEnd}
+                      className={`space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 ${
+                        draggingItemId === item.id ? "opacity-50" : ""
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-semibold text-slate-500">#{item.taskNumber}</p>
+                          <p className="font-semibold text-slate-900">{item.title}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openDetails(item)}
+                          className="rounded bg-slate-800 px-2 py-1 text-xs text-white"
+                        >
+                          Abrir
+                        </button>
+                      </div>
+
+                      <p className="text-xs text-slate-500">{item.projectName}</p>
+                      <p className="text-xs text-slate-600">Atribuído: {item.assignedToName ?? "-"}</p>
+                      <p className="text-xs text-slate-600">Horas: {item.totalHours.toFixed(2)}h</p>
+
+                      <select
+                        value={item.status}
+                        onChange={(event) => moveItemToStatus(item, event.target.value as WorkItemStatus)}
+                        className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                      >
+                        {statuses.map((s) => (
+                          <option key={s} value={s}>{statusLabels[s]}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                  {itemsByStatus[columnStatus].length === 0 && (
+                    <p className="rounded border border-dashed border-slate-200 px-3 py-6 text-center text-xs text-slate-500">
+                      Sem tarefas nesta coluna.
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {selectedItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+        <ModalOverlay>
           <div className="max-h-[90vh] w-full max-w-5xl space-y-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h3 className="text-lg font-semibold">{selectedItem.taskNumber} - {selectedItem.title}</h3>
                 <p className="text-sm text-slate-500">{selectedItem.projectName}</p>
+                <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Descrição</p>
+                <div className="mt-2 space-y-2 text-sm text-slate-700">
+                  {selectedItem.description.trim() ? (
+                    renderMarkdownPreview(selectedItem.description)
+                  ) : (
+                    <p className="text-slate-500">Sem descrição.</p>
+                  )}
+                </div>
               </div>
               <button type="button" onClick={closeDetailsModal} className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700">
                 Fechar
@@ -450,44 +778,66 @@ export function WorkItemsPage() {
                 rows={5}
                 className="w-full rounded border border-slate-300 px-3 py-2 md:col-span-2"
               />
+              <p className="text-xs text-slate-500 md:col-span-2">
+                Formatações Markdown: <code className="rounded bg-slate-100 px-1 py-0.5"># Título</code>, <code className="rounded bg-slate-100 px-1 py-0.5">**negrito**</code>, <code className="rounded bg-slate-100 px-1 py-0.5">*itálico*</code>, <code className="rounded bg-slate-100 px-1 py-0.5">- item</code>, <code className="rounded bg-slate-100 px-1 py-0.5">1. item</code>, <code className="rounded bg-slate-100 px-1 py-0.5">`código`</code>, <code className="rounded bg-slate-100 px-1 py-0.5">[link](https://...)</code> e <code className="rounded bg-slate-100 px-1 py-0.5">&gt; citação</code>.
+              </p>
 
-              <input type="number" step="0.25" min="0.25" max="24" value={logHours} onChange={(event) => setLogHours(event.target.value)} className="rounded border border-slate-300 px-3 py-2" />
-              <input type="date" value={logWorkDate} onChange={(event) => setLogWorkDate(event.target.value)} className="rounded border border-slate-300 px-3 py-2" />
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-600">Início</label>
+                <input
+                  type="datetime-local"
+                  value={logStartAt}
+                  onChange={(event) => setLogStartAt(event.target.value)}
+                  className="w-full rounded border border-slate-300 px-3 py-2"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-600">Fim</label>
+                <input
+                  type="datetime-local"
+                  value={logEndAt}
+                  onChange={(event) => setLogEndAt(event.target.value)}
+                  className="w-full rounded border border-slate-300 px-3 py-2"
+                />
+              </div>
+              <p className="text-xs text-slate-600 md:col-span-2">
+                Tempo calculado: {calculatedLogHours !== null ? `${calculatedLogHours.toFixed(2)}h` : "-"}
+              </p>
+              {logWorkError && (
+                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:col-span-2">
+                  {logWorkError}
+                </p>
+              )}
 
               <button className="rounded bg-brand-700 px-3 py-2 text-white md:col-span-2">Salvar registro de trabalho</button>
             </form>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <h4 className="font-semibold">Comentários e Apontamento de Horas</h4>
               <div className="space-y-2">
-                <h4 className="font-semibold">Comentários</h4>
-                <div className="space-y-2">
-                  {comments.map((comment) => (
-                    <div key={comment.id} className="rounded border border-slate-200 p-2 text-sm">
-                      <p className="font-semibold">{comment.authorName}</p>
-                      <p>{comment.content}</p>
+                {activityItems.map((entry) => (
+                  <div key={entry.id} className="rounded border border-slate-200 p-3 text-sm">
+                    <p className="font-semibold">
+                      {formatDateTime(entry.createdAtUtc)} - {entry.userName} - Apontamento de horas: {entry.hours !== null ? `${entry.hours.toFixed(2)}h` : "-"}
+                    </p>
+                    <div className="mt-2 space-y-2 text-slate-700">
+                      {entry.content.trim() ? renderMarkdownPreview(entry.content) : <p className="text-slate-500">Sem conteúdo.</p>}
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <h4 className="font-semibold">Apontamentos de horas</h4>
-                <div className="space-y-2">
-                  {timeEntries.map((entry) => (
-                    <div key={entry.id} className="rounded border border-slate-200 p-2 text-sm">
-                      <p className="font-semibold">{entry.userName} - {entry.hours.toFixed(2)}h</p>
-                      <p>{entry.workDate}: {entry.description}</p>
-                    </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
+                {activityItems.length === 0 && (
+                  <p className="rounded border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-500">
+                    Nenhum comentário ou apontamento registrado.
+                  </p>
+                )}
               </div>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+        <ModalOverlay>
           <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
               <h3 className="text-lg font-semibold">Criar tarefa</h3>
@@ -546,6 +896,10 @@ export function WorkItemsPage() {
                 )}
               </div>
 
+              <p className="text-xs text-slate-500 md:col-span-2">
+                Formatações Markdown: <code className="rounded bg-slate-100 px-1 py-0.5"># Título</code>, <code className="rounded bg-slate-100 px-1 py-0.5">**negrito**</code>, <code className="rounded bg-slate-100 px-1 py-0.5">*itálico*</code>, <code className="rounded bg-slate-100 px-1 py-0.5">- item</code>, <code className="rounded bg-slate-100 px-1 py-0.5">1. item</code>, <code className="rounded bg-slate-100 px-1 py-0.5">`código`</code>, <code className="rounded bg-slate-100 px-1 py-0.5">[link](https://...)</code> e <code className="rounded bg-slate-100 px-1 py-0.5">&gt; citação</code>.
+              </p>
+
               <select value={responsibleDeveloperId} onChange={(event) => setResponsibleDeveloperId(event.target.value)} className="rounded border border-slate-300 px-3 py-2">
                 <option value="">Desenvolvedor responsável</option>
                 {developerOptions.map((dev) => (
@@ -563,8 +917,12 @@ export function WorkItemsPage() {
               <button className="rounded bg-brand-700 px-3 py-2 text-white md:col-span-2">Criar tarefa</button>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </div>
   );
 }
+
+
+
+

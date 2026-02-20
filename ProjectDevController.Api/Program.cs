@@ -73,9 +73,10 @@ builder.Services.AddCors(options =>
     options.AddPolicy("frontend", policy =>
     {
         policy
-            .WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+            .WithOrigins("http://192.168.1.57:8080", "http://localhost:5173")
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod()
+            .AllowCredentials();
     });
 });
 
@@ -90,31 +91,6 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     await db.Database.MigrateAsync();
-
-    //if (db.Database.IsNpgsql())
-    //{
-    //    db.Database.ExecuteSqlRaw("""
-    //        ALTER TABLE "Users"
-    //        ADD COLUMN IF NOT EXISTS "IsActive" boolean NOT NULL DEFAULT TRUE;
-    //        """);
-
-    //    db.Database.ExecuteSqlRaw("""
-    //        ALTER TABLE "WorkItems"
-    //        ADD COLUMN IF NOT EXISTS "TaskNumber" integer NOT NULL DEFAULT 0;
-    //        """);
-
-    //    db.Database.ExecuteSqlRaw("""
-    //        WITH numbered AS (
-    //            SELECT "Id", ROW_NUMBER() OVER (ORDER BY "CreatedAtUtc", "Id") AS rn
-    //            FROM "WorkItems"
-    //            WHERE "TaskNumber" = 0
-    //        )
-    //        UPDATE "WorkItems" w
-    //        SET "TaskNumber" = n.rn
-    //        FROM numbered n
-    //        WHERE w."Id" = n."Id";
-    //        """);
-    //}
 }
 
 app.Run();

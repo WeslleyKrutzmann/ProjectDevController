@@ -36,11 +36,6 @@ public sealed class UsersController(ApplicationDbContext db, PasswordHasher<User
             return Unauthorized();
         }
 
-        if (currentUser.Role != UserRole.Administrator)
-        {
-            return Forbid();
-        }
-
         var users = await db.Users
             .OrderBy(x => x.FullName)
             .ToListAsync();

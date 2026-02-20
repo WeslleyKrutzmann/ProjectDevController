@@ -43,6 +43,10 @@ export function LoginPage() {
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
+    if (checkingFirstAccess || loading) {
+      return;
+    }
+
     setError(null);
     setLoading(true);
     try {
@@ -74,7 +78,7 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
       <form onSubmit={onSubmit} className="w-full max-w-md space-y-4 rounded-xl border border-slate-200 bg-white p-6">
-        <h1 className="text-2xl font-bold text-brand-700">ProjectDevController</h1>
+        <h1 className="text-2xl font-bold text-brand-700">ProjectDevController - {__APP_VERSION__}</h1>
         <p className="text-sm text-slate-500">
           {checkingFirstAccess
             ? "Verificando configuração inicial..."
