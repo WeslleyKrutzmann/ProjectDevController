@@ -279,6 +279,7 @@ export function WorkItemsPage() {
   const [logStatus, setLogStatus] = useState<WorkItemStatus>("Todo");
   const [logAssignedToId, setLogAssignedToId] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isCreateAttempted, setIsCreateAttempted] = useState(false);
   const [viewMode, setViewMode] = useState<WorkItemsViewMode>("list");
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [moveError, setMoveError] = useState("");
@@ -425,7 +426,20 @@ export function WorkItemsPage() {
 
   async function onCreate(event: FormEvent) {
     event.preventDefault();
-    if (!token || !projectId) {
+    if (!token) {
+      return;
+    }
+
+    setIsCreateAttempted(true);
+    const missingFields: string[] = [];
+    if (!projectId) missingFields.push("Projeto");
+    if (!status) missingFields.push("Status");
+    if (!title.trim()) missingFields.push("Título");
+    if (!description.trim()) missingFields.push("Descrição");
+    if (!responsibleDeveloperId) missingFields.push("Dev responsável");
+    if (!assignedToId) missingFields.push("Atribuído para");
+
+    if (missingFields.length > 0) {
       return;
     }
 
@@ -433,8 +447,8 @@ export function WorkItemsPage() {
       "/work-items",
       {
         projectId,
-        title,
-        description,
+        title: title.trim(),
+        description: description.trim(),
         status,
         responsibleDeveloperId: responsibleDeveloperId || null,
         assignedToId: assignedToId || null
@@ -448,6 +462,7 @@ export function WorkItemsPage() {
     setAssignedToId("");
     setStatus("Todo");
     setDescriptionTab("edit");
+    setIsCreateAttempted(false);
     setIsCreateModalOpen(false);
     await loadItems();
   }
@@ -605,7 +620,7 @@ export function WorkItemsPage() {
               Lista
             </button>
           </div>
-          <button type="button" onClick={() => setIsCreateModalOpen(true)} className="rounded bg-brand-700 px-3 py-2 text-white">
+          <button type="button" onClick={() => { setIsCreateAttempted(false); setIsCreateModalOpen(true); }} className="rounded bg-brand-700 px-3 py-2 text-white">
             Nova tarefa
           </button>
         </div>
@@ -841,25 +856,38 @@ export function WorkItemsPage() {
           <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
               <h3 className="text-lg font-semibold">Criar tarefa</h3>
-              <button type="button" onClick={() => setIsCreateModalOpen(false)} className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700">
+              <button type="button" onClick={() => { setIsCreateAttempted(false); setIsCreateModalOpen(false); }} className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700">
                 Fechar
               </button>
             </div>
 
             <form onSubmit={onCreate} className="grid gap-2 md:grid-cols-2">
-              <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="rounded border border-slate-300 px-3 py-2">
+              <select
+                value={projectId}
+                onChange={(event) => setProjectId(event.target.value)}
+                className={`rounded border px-3 py-2 ${isCreateAttempted && !projectId ? "border-red-500" : "border-slate-300"}`}
+              >
                 {projects.map((project) => (
                   <option key={project.id} value={project.id}>{project.name}</option>
                 ))}
               </select>
-              <select value={status} onChange={(event) => setStatus(event.target.value as WorkItemStatus)} className="rounded border border-slate-300 px-3 py-2">
+              <select
+                value={status}
+                onChange={(event) => setStatus(event.target.value as WorkItemStatus)}
+                className={`rounded border px-3 py-2 ${isCreateAttempted && !status ? "border-red-500" : "border-slate-300"}`}
+              >
                 {statuses.map((s) => (
                   <option key={s} value={s}>{statusLabels[s]}</option>
                 ))}
               </select>
 
-              <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Título da tarefa" className="rounded border border-slate-300 px-3 py-2 md:col-span-2" />
-              <div className="overflow-hidden rounded border border-slate-300 md:col-span-2">
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Título da tarefa"
+                className={`rounded border px-3 py-2 md:col-span-2 ${isCreateAttempted && !title.trim() ? "border-red-500" : "border-slate-300"}`}
+              />
+              <div className={`overflow-hidden rounded border md:col-span-2 ${isCreateAttempted && !description.trim() ? "border-red-500" : "border-slate-300"}`}>
                 <div className="flex border-b border-slate-300 bg-slate-50">
                   <button
                     type="button"
@@ -900,14 +928,22 @@ export function WorkItemsPage() {
                 Formatações Markdown: <code className="rounded bg-slate-100 px-1 py-0.5"># Título</code>, <code className="rounded bg-slate-100 px-1 py-0.5">**negrito**</code>, <code className="rounded bg-slate-100 px-1 py-0.5">*itálico*</code>, <code className="rounded bg-slate-100 px-1 py-0.5">- item</code>, <code className="rounded bg-slate-100 px-1 py-0.5">1. item</code>, <code className="rounded bg-slate-100 px-1 py-0.5">`código`</code>, <code className="rounded bg-slate-100 px-1 py-0.5">[link](https://...)</code> e <code className="rounded bg-slate-100 px-1 py-0.5">&gt; citação</code>.
               </p>
 
-              <select value={responsibleDeveloperId} onChange={(event) => setResponsibleDeveloperId(event.target.value)} className="rounded border border-slate-300 px-3 py-2">
+              <select
+                value={responsibleDeveloperId}
+                onChange={(event) => setResponsibleDeveloperId(event.target.value)}
+                className={`rounded border px-3 py-2 ${isCreateAttempted && !responsibleDeveloperId ? "border-red-500" : "border-slate-300"}`}
+              >
                 <option value="">Desenvolvedor responsável</option>
                 {developerOptions.map((dev) => (
                   <option key={dev.id} value={dev.id}>{dev.fullName} ({roleLabels[dev.role] ?? dev.role})</option>
                 ))}
               </select>
 
-              <select value={assignedToId} onChange={(event) => setAssignedToId(event.target.value)} className="rounded border border-slate-300 px-3 py-2">
+              <select
+                value={assignedToId}
+                onChange={(event) => setAssignedToId(event.target.value)}
+                className={`rounded border px-3 py-2 ${isCreateAttempted && !assignedToId ? "border-red-500" : "border-slate-300"}`}
+              >
                 <option value="">Atribuído para</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>{u.fullName}</option>
