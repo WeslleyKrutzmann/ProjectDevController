@@ -10,6 +10,8 @@ O **ProjectDevController** foi criado para organizar o ciclo de trabalho de equi
 - Status, responsável técnico e atribuição de tarefa
 - Comentários e apontamento de horas
 - Relatórios de horas por usuário com filtros por período
+- Exibição de horas convertida automaticamente para formato real (base 60, ex.: `1h 30min`)
+- Painel com gráfico de barras por usuário (eixos X/Y), filtro por período e exibição de todos os usuários (inclusive sem apontamentos)
 - Controle de usuários por perfil (`Administrator`, `Developer`, `Tester`)
 - Edição de usuários com regras de permissão:
   - Administrador edita todos e pode inativar usuários
@@ -62,7 +64,10 @@ Frontend: `http://localhost:5173`
 - Registro de trabalho em modal (comentário + horas + atualização de status/atribuição em uma ação)
 - Filtros de tarefas por projeto, status e atribuição
 - Relatórios de horas por usuário
+- Dashboard com gráfico de horas por usuário e filtro por período (padrão: últimos 30 dias)
+- Exibição de horas em formato base 60 nas telas (dashboard, tarefas e relatórios)
 
 ## Licença
 Este projeto é open source e está licenciado sob a **MIT License**.
 Consulte o arquivo `LICENSE` para mais detalhes.
+
