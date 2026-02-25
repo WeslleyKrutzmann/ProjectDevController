@@ -2,6 +2,7 @@
 import { api } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import { ModalOverlay } from "../components/ModalOverlay";
+import { formatHours } from "../lib/hours";
 import type { Project, TaskComment, TimeEntry, User, WorkItem, WorkItemStatus } from "../lib/types";
 
 const statuses: WorkItemStatus[] = ["Todo", "InProgress", "InTesting", "Done"];
@@ -672,7 +673,7 @@ export function WorkItemsPage() {
                   <td className="px-3 py-2 font-semibold">{item.title}</td>
                   <td className="px-3 py-2">{statusLabels[item.status]}</td>
                   <td className="px-3 py-2">{item.assignedToName ?? "-"}</td>
-                  <td className="px-3 py-2">{item.totalHours.toFixed(2)}</td>
+                  <td className="px-3 py-2">{formatHours(item.totalHours)}</td>
                   <td className="px-3 py-2">
                     <button onClick={() => openDetails(item)} className="rounded bg-slate-800 px-2 py-1 text-xs text-white">
                       Registrar trabalho
@@ -727,7 +728,7 @@ export function WorkItemsPage() {
 
                       <p className="text-xs text-slate-500">{item.projectName}</p>
                       <p className="text-xs text-slate-600">Atribuído: {item.assignedToName ?? "-"}</p>
-                      <p className="text-xs text-slate-600">Horas: {item.totalHours.toFixed(2)}h</p>
+                      <p className="text-xs text-slate-600">Horas: {formatHours(item.totalHours)}</p>
 
                       <select
                         value={item.status}
@@ -816,7 +817,7 @@ export function WorkItemsPage() {
                 />
               </div>
               <p className="text-xs text-slate-600 md:col-span-2">
-                Tempo calculado: {calculatedLogHours !== null ? `${calculatedLogHours.toFixed(2)}h` : "-"}
+                Tempo calculado: {calculatedLogHours !== null ? formatHours(calculatedLogHours) : "-"}
               </p>
               {logWorkError && (
                 <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:col-span-2">
@@ -833,7 +834,7 @@ export function WorkItemsPage() {
                 {activityItems.map((entry) => (
                   <div key={entry.id} className="rounded border border-slate-200 p-3 text-sm">
                     <p className="font-semibold">
-                      {formatDateTime(entry.createdAtUtc)} - {entry.userName} - Apontamento de horas: {entry.hours !== null ? `${entry.hours.toFixed(2)}h` : "-"}
+                      {formatDateTime(entry.createdAtUtc)} - {entry.userName} - Apontamento de horas: {entry.hours !== null ? formatHours(entry.hours) : "-"}
                     </p>
                     <div className="mt-2 space-y-2 text-slate-700">
                       {entry.content.trim() ? renderMarkdownPreview(entry.content) : <p className="text-slate-500">Sem conteúdo.</p>}

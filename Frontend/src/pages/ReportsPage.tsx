@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
+import { formatHours } from "../lib/hours";
 import type { HoursByUserReportRow } from "../lib/types";
 
 const roleLabels: Record<string, string> = {
@@ -65,7 +66,7 @@ export function ReportsPage() {
               <tr key={row.userId} className="border-t border-slate-200">
                 <td className="px-3 py-2">{row.userName}</td>
                 <td className="px-3 py-2">{roleLabels[row.role] ?? row.role}</td>
-                <td className="px-3 py-2 font-semibold">{row.totalHours.toFixed(2)}h</td>
+                <td className="px-3 py-2 font-semibold">{formatHours(row.totalHours)}</td>
               </tr>
             ))}
           </tbody>
